@@ -21,20 +21,19 @@ comport=COM7
 Copy from the attached zip file the PBXFlexDMD.dll to your PinballX\Plugin directory
 
 Starts from your PinballX folder (in your start menu) the option Plugins (or from your PinballX directory PluginManager.exe)
-image.png.91a7805e5a7930a804ca88d14377e6df.png
-
+![image](https://github.com/MikedaSpike/PinballX-Plugin-FLEXDMD/assets/48748234/79679c32-4a64-40c6-9f6f-37d4c131d523)
  
 
 From the Plugins program, enable FlexDMD Plugin by checking the checkbox and click exit (nothing to configure)
 
-image.png.ea4f1086b5ba0125e733c1ad85ab1ed5.png
+![image](https://github.com/MikedaSpike/PinballX-Plugin-FLEXDMD/assets/48748234/4ecb6525-cf5e-44fb-9db4-81114df79932)
 
- 
 
 Launch PinballX 
 If FlexDMD is configured correctly you will see on your DMD display :
 
-image.thumb.png.caf82ca592d03e1b9a0a899165563224.png
+![image](https://github.com/MikedaSpike/PinballX-Plugin-FLEXDMD/assets/48748234/0accc0ca-648b-4e65-8266-a67278704210)
+
 
 When PinballX is started , you will see the corresponding video for your table.
 
