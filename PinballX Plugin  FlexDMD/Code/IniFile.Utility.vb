@@ -1,19 +1,41 @@
-﻿Imports System.IO
+﻿Imports System.Collections.Generic
+Imports System.IO
+Imports System.Security.Cryptography
 Imports System.Text.RegularExpressions
+Imports System.Windows.Forms
 
 Namespace DracLabs
     Public Class IniFile
         ' List of IniSection objects keeps track of all the sections in the INI file
-        Private m_sections As Hashtable
-        Private a_sections As ArrayList
+        Private m_sections As List(Of IniSection)
+        Private m_blankLineAfterSection As Boolean
+        Private m_fileName As String
+
         ' Public constructor
         Public Sub New()
-            m_sections = New Hashtable(StringComparer.InvariantCultureIgnoreCase)
-            a_sections = New ArrayList
+            m_sections = New List(Of IniSection)()
+            m_blankLineAfterSection = True
         End Sub
+        ' Property to control adding a blank line after each section
+        Public Property BlankLineAfterSection() As Boolean
+            Get
+                Return m_blankLineAfterSection
+            End Get
+            Set(ByVal value As Boolean)
+                m_blankLineAfterSection = value
+            End Set
+        End Property
+
+        ' Property to get the filename
+        Public ReadOnly Property FileName() As String
+            Get
+                Return m_fileName
+            End Get
+        End Property
 
         ' Loads the Reads the data in the ini file into the IniFile object
         Public Sub Load(ByVal sFileName As String, Optional ByVal bMerge As Boolean = False)
+            m_fileName = sFileName ' Store the filename
             If Not bMerge Then
                 RemoveAllSections()
             End If
@@ -21,32 +43,37 @@ Namespace DracLabs
             Dim tempsection As IniSection = Nothing
             Dim oReader As New StreamReader(sFileName)
             Dim regexcomment As New Regex("^([\s]*#.*)", (RegexOptions.Singleline Or RegexOptions.IgnoreCase))
+            Dim iLineNumber As Integer = 0
             ' Broken but left for history
             'Dim regexsection As New Regex("\[[\s]*([^\[\s].*[^\s\]])[\s]*\]", (RegexOptions.Singleline Or RegexOptions.IgnoreCase))
             Dim regexsection As New Regex("^[\s]*\[[\s]*([^\[\s].*[^\s\]])[\s]*\][\s]*$", (RegexOptions.Singleline Or RegexOptions.IgnoreCase))
             Dim regexkey As New Regex("^\s*([^=\s]*)[^=]*=(.*)", (RegexOptions.Singleline Or RegexOptions.IgnoreCase))
             While Not oReader.EndOfStream
                 Dim line As String = oReader.ReadLine()
+                iLineNumber = iLineNumber + 1
                 If line <> String.Empty Then
+                    If line.Length > 10000 Then
+                        line = Left(line, 10000)
+                    End If
                     Dim m As Match = Nothing
                     If regexcomment.Match(line).Success Then
                         m = regexcomment.Match(line)
-                        Trace.WriteLine(String.Format("Skipping Comment: {0}", m.Groups(0).Value))
+                        'Trace.WriteLine(String.Format("Skipping Comment: {0}", m.Groups(0).Value))
                     ElseIf regexsection.Match(line).Success Then
                         m = regexsection.Match(line)
-                        Trace.WriteLine(String.Format("Adding section [{0}]", m.Groups(1).Value))
+                        'Trace.WriteLine(String.Format("Adding section [{0}]", m.Groups(1).Value))
                         tempsection = AddSection(m.Groups(1).Value)
-                    ElseIf regexkey.Match(line).Success AndAlso tempsection IsNot Nothing Then
+                    ElseIf tempsection IsNot Nothing AndAlso regexkey.Match(line).Success Then
                         m = regexkey.Match(line)
-                        Trace.WriteLine(String.Format("Adding Key [{0}]=[{1}]", m.Groups(1).Value, m.Groups(2).Value))
+                        'Trace.WriteLine(String.Format("Adding Key [{0}]=[{1}]", m.Groups(1).Value, m.Groups(2).Value))
                         tempsection.AddKey(m.Groups(1).Value).Value = m.Groups(2).Value
                     ElseIf tempsection IsNot Nothing Then
                         '  Handle Key without value
-                        Trace.WriteLine(String.Format("Adding Key [{0}]", line))
+                        'Trace.WriteLine(String.Format("Adding Key [{0}]", line))
                         tempsection.AddKey(line)
                     Else
                         '  This should not occur unless the tempsection is not created yet...
-                        Trace.WriteLine(String.Format("Skipping unknown type of data: {0}", line))
+                        'Trace.WriteLine(String.Format("Skipping unknown type of data: {0}", line))
                     End If
                 End If
             End While
@@ -56,18 +83,21 @@ Namespace DracLabs
         ' Used to save the data back to the file or your choice
         Public Sub Save(ByVal sFileName As String)
             Dim oWriter As New StreamWriter(sFileName, False)
-            For Each s As IniSection In Sections
-                Trace.WriteLine(String.Format("Writing Section: [{0}]", s.Name))
+            For Each s As IniSection In m_sections
+                'Trace.WriteLine(String.Format("Writing Section: [{0}]", s.Name))
                 oWriter.WriteLine(String.Format("[{0}]", s.Name))
                 For Each k As IniSection.IniKey In s.Keys
                     If k.Value <> String.Empty Then
-                        Trace.WriteLine(String.Format("Writing Key: {0}={1}", k.Name, k.Value))
+                        'Trace.WriteLine(String.Format("Writing Key: {0}={1}", k.Name, k.Value))
                         oWriter.WriteLine(String.Format("{0}={1}", k.Name, k.Value))
                     Else
-                        Trace.WriteLine(String.Format("Writing Key: {0}", k.Name))
+                        'Trace.WriteLine(String.Format("Writing Key: {0}", k.Name))
                         oWriter.WriteLine(String.Format("{0}", k.Name))
                     End If
                 Next
+                If m_blankLineAfterSection Then
+                    oWriter.WriteLine() ' Add blank line after section if property is set
+                End If
             Next
             oWriter.Close()
         End Sub
@@ -75,52 +105,31 @@ Namespace DracLabs
         ' Gets all the sections
         Public ReadOnly Property Sections() As System.Collections.ICollection
             Get
-                Return m_sections.Values
-            End Get
-        End Property
-
-        ' SectionList - Preserves the original order of the sections
-        Public ReadOnly Property SectionList() As ArrayList
-            Get
-                Return a_sections
+                Return m_sections
             End Get
         End Property
 
         ' Adds a section to the IniFile object, returns a IniSection object to the new or existing object
         Public Function AddSection(ByVal sSection As String) As IniSection
-            Dim s As IniSection = Nothing
-            sSection = sSection.Trim()
-            ' Trim spaces
-            If m_sections.ContainsKey(sSection) Then
-                s = DirectCast(m_sections(sSection), IniSection)
-            Else
+            Dim s As IniSection = GetSection(sSection)
+            If s Is Nothing Then
                 s = New IniSection(Me, sSection)
-                m_sections(sSection) = s
-                a_sections.Add(sSection)
+                m_sections.Add(s)
             End If
             Return s
         End Function
 
-        ' Removes a section by its name sSection, returns trus on success
+        ' Removes a section by its name sSection, returns true on success
         Public Function RemoveSection(ByVal sSection As String) As Boolean
-            sSection = sSection.Trim()
-            Return RemoveSection(GetSection(sSection))
-        End Function
-
-        ' Removes section by object, returns trus on success
-        Public Function RemoveSection(ByVal Section As IniSection) As Boolean
-            If Section IsNot Nothing Then
-                Try
-                    m_sections.Remove(Section.Name)
-                    Return True
-                Catch ex As Exception
-                    Trace.WriteLine(ex.Message)
-                End Try
+            Dim s As IniSection = GetSection(sSection)
+            If s IsNot Nothing Then
+                m_sections.Remove(s)
+                Return True
             End If
             Return False
         End Function
 
-        '  Removes all existing sections, returns trus on success
+        ' Removes all existing sections, returns true on success
         Public Function RemoveAllSections() As Boolean
             m_sections.Clear()
             Return (m_sections.Count = 0)
@@ -128,15 +137,15 @@ Namespace DracLabs
 
         ' Returns an IniSection to the section by name, NULL if it was not found
         Public Function GetSection(ByVal sSection As String) As IniSection
-            sSection = sSection.Trim()
-            ' Trim spaces
-            If m_sections.ContainsKey(sSection) Then
-                Return DirectCast(m_sections(sSection), IniSection)
-            End If
+            For Each s As IniSection In m_sections
+                If s.Name.Equals(sSection, StringComparison.InvariantCultureIgnoreCase) Then
+                    Return s
+                End If
+            Next
             Return Nothing
         End Function
 
-        '  Returns a KeyValue in a certain section
+        ' Returns a KeyValue in a certain section
         Public Function GetKeyValue(ByVal sSection As String, ByVal sKey As String) As String
             Dim s As IniSection = GetSection(sSection)
             If s IsNot Nothing Then
@@ -164,12 +173,11 @@ Namespace DracLabs
         ' Renames an existing section returns true on success, false if the section didn't exist or there was another section with the same sNewSection
         Public Function RenameSection(ByVal sSection As String, ByVal sNewSection As String) As Boolean
             '  Note string trims are done in lower calls.
-            Dim bRval As Boolean = False
             Dim s As IniSection = GetSection(sSection)
             If s IsNot Nothing Then
-                bRval = s.SetName(sNewSection)
+                Return s.SetName(sNewSection)
             End If
-            Return bRval
+            Return False
         End Function
 
         ' Renames an existing key returns true on success, false if the key didn't exist or there was another section with the same sNewKey
@@ -185,15 +193,6 @@ Namespace DracLabs
             Return False
         End Function
 
-        ' Remove a key by section name and key name
-        Public Function RemoveKey(ByVal sSection As String, ByVal sKey As String) As Boolean
-            Dim s As IniSection = GetSection(sSection)
-            If s IsNot Nothing Then
-                Return s.RemoveKey(sKey)
-            End If
-            Return False
-        End Function
-
         ' IniSection class 
         Public Class IniSection
             '  IniFile IniFile object instance
@@ -201,19 +200,18 @@ Namespace DracLabs
             '  Name of the section
             Private m_sSection As String
             '  List of IniKeys in the section
-            Private m_keys As Hashtable
+            Private m_keys As List(Of IniKey)
 
             ' Constuctor so objects are internally managed
             Protected Friend Sub New(ByVal parent As IniFile, ByVal sSection As String)
                 m_pIniFile = parent
                 m_sSection = sSection
-                m_keys = New Hashtable(StringComparer.InvariantCultureIgnoreCase)
+                m_keys = New List(Of IniKey)()
             End Sub
-
             ' Returns all the keys in a section
             Public ReadOnly Property Keys() As System.Collections.ICollection
                 Get
-                    Return m_keys.Values
+                    Return m_keys
                 End Get
             End Property
 
@@ -227,32 +225,20 @@ Namespace DracLabs
             ' Adds a key to the IniSection object, returns a IniKey object to the new or existing object
             Public Function AddKey(ByVal sKey As String) As IniKey
                 sKey = sKey.Trim()
-                Dim k As IniSection.IniKey = Nothing
-                If sKey.Length <> 0 Then
-                    If m_keys.ContainsKey(sKey) Then
-                        k = DirectCast(m_keys(sKey), IniKey)
-                    Else
-                        k = New IniSection.IniKey(Me, sKey)
-                        m_keys(sKey) = k
-                    End If
+                Dim k As IniKey = GetKey(sKey)
+                If k Is Nothing Then
+                    k = New IniKey(Me, sKey)
+                    m_keys.Add(k)
                 End If
                 Return k
             End Function
 
             ' Removes a single key by string
             Public Function RemoveKey(ByVal sKey As String) As Boolean
-                Return RemoveKey(GetKey(sKey))
-            End Function
-
-            ' Removes a single key by IniKey object
-            Public Function RemoveKey(ByVal Key As IniKey) As Boolean
-                If Key IsNot Nothing Then
-                    Try
-                        m_keys.Remove(Key.Name)
-                        Return True
-                    Catch ex As Exception
-                        Trace.WriteLine(ex.Message)
-                    End Try
+                Dim k As IniKey = GetKey(sKey)
+                If k IsNot Nothing Then
+                    m_keys.Remove(k)
+                    Return True
                 End If
                 Return False
             End Function
@@ -265,41 +251,22 @@ Namespace DracLabs
 
             ' Returns a IniKey object to the key by name, NULL if it was not found
             Public Function GetKey(ByVal sKey As String) As IniKey
-                sKey = sKey.Trim()
-                If m_keys.ContainsKey(sKey) Then
-                    Return DirectCast(m_keys(sKey), IniKey)
-                End If
+                For Each k As IniKey In m_keys
+                    If k.Name.Equals(sKey, StringComparison.InvariantCultureIgnoreCase) Then
+                        Return k
+                    End If
+                Next
                 Return Nothing
             End Function
 
             ' Sets the section name, returns true on success, fails if the section
             ' name sSection already exists
             Public Function SetName(ByVal sSection As String) As Boolean
-                sSection = sSection.Trim()
-                If sSection.Length <> 0 Then
-                    ' Get existing section if it even exists...
-                    Dim s As IniSection = m_pIniFile.GetSection(sSection)
-                    If s IsNot Me AndAlso s IsNot Nothing Then
-                        Return False
-                    End If
-                    Try
-                        ' Remove the current section
-                        m_pIniFile.m_sections.Remove(m_sSection)
-                        ' Set the new section name to this object
-                        m_pIniFile.m_sections(sSection) = Me
-                        ' Set the new section name
-                        m_sSection = sSection
-                        Return True
-                    Catch ex As Exception
-                        Trace.WriteLine(ex.Message)
-                    End Try
+                If m_pIniFile.GetSection(sSection) Is Nothing Then
+                    m_sSection = sSection
+                    Return True
                 End If
                 Return False
-            End Function
-
-            ' Returns the section name
-            Public Function GetName() As String
-                Return m_sSection
             End Function
 
             ' IniKey class
@@ -308,10 +275,10 @@ Namespace DracLabs
                 Private m_sKey As String
                 '  Value associated
                 Private m_sValue As String
-                '  Pointer to the parent CIniSection
+                '  Pointer to the parent IniSection
                 Private m_section As IniSection
 
-                ' Constuctor so objects are internally managed
+                ' Constructor so objects are internally managed
                 Protected Friend Sub New(ByVal parent As IniSection, ByVal sKey As String)
                     m_section = parent
                     m_sKey = sKey
@@ -334,42 +301,14 @@ Namespace DracLabs
                     End Set
                 End Property
 
-                ' Sets the value of the key
-                Public Sub SetValue(ByVal sValue As String)
-                    m_sValue = sValue
-                End Sub
-                ' Returns the value of the Key
-                Public Function GetValue() As String
-                    Return m_sValue
-                End Function
-
                 ' Sets the key name
-                ' Returns true on success, fails if the section name sKey already exists
+                ' Returns true on success, fails if the key name sKey already exists
                 Public Function SetName(ByVal sKey As String) As Boolean
-                    sKey = sKey.Trim()
-                    If sKey.Length <> 0 Then
-                        Dim k As IniKey = m_section.GetKey(sKey)
-                        If k IsNot Me AndAlso k IsNot Nothing Then
-                            Return False
-                        End If
-                        Try
-                            ' Remove the current key
-                            m_section.m_keys.Remove(m_sKey)
-                            ' Set the new key name to this object
-                            m_section.m_keys(sKey) = Me
-                            ' Set the new key name
-                            m_sKey = sKey
-                            Return True
-                        Catch ex As Exception
-                            Trace.WriteLine(ex.Message)
-                        End Try
+                    If m_section.GetKey(sKey) Is Nothing Then
+                        m_sKey = sKey
+                        Return True
                     End If
                     Return False
-                End Function
-
-                ' Returns the name of the Key
-                Public Function GetName() As String
-                    Return m_sKey
                 End Function
             End Class
             ' End of IniKey class
@@ -377,3 +316,4 @@ Namespace DracLabs
         ' End of IniSection class
     End Class
 End Namespace
+
