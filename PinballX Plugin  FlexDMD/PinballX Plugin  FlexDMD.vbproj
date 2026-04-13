@@ -129,7 +129,10 @@
     <Compile Include="AssemblyInfo.vb">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="Code\FlexDMD.vb" />
+    <Compile Include="Code\PinemHiManager.vb" />
+    <Compile Include="Code\CarouselManager.vb" />
+    <Compile Include="Code\FlexDMDEngine.vb" />
+    <Compile Include="Code\GlobalConfig.vb" />
     <Compile Include="Code\IniFile.Utility.vb" />
     <Compile Include="Code\Logger.Utility.vb" />
     <Compile Include="Code\PinballX.PlugIn.vb">
@@ -145,6 +148,7 @@
     </Compile>
     <EmbeddedResource Include="Forms\Configuration.resx">
       <DependentUpon>Configuration.vb</DependentUpon>
+      <SubType>Designer</SubType>
     </EmbeddedResource>
     <EmbeddedResource Include="My Project\Resources.resx">
       <CustomToolNamespace>My.Resources</CustomToolNamespace>

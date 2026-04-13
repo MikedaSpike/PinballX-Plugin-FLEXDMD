@@ -1,19 +1,22 @@
 ﻿Imports System.Collections.Generic
 Imports System.Drawing
+Imports System.Drawing.Imaging
 Imports System.IO
 Imports System.Linq
 Imports System.Runtime.InteropServices
+Imports System.Timers
 Imports System.Windows.Forms
 Imports System.Xml
 
 
+
 Namespace PinballX
     Public Structure PluginInfo
-        Public Const Name As String = "FLEXDMD"
-        Public Const Version As String = "1.4"
+        Public Const Name As String = "FLEXDMD Plugin"
+        Public Const Version As String = "2.0"
         Public Const Author As String = "Mike DA Spike"
-        Public Const Description As String = "Replacement of PinballX XDMD for FLEXDMD." & vbCrLf & "Can be set for DMD 128x32 or 256x64 panels (HD)"
-        Public Const PluginVersion As String = "1.4"
+        Public Const Description As String = "An advanced FlexDMD-based replacement for the standard PinballX XDMD." & vbCrLf & "Perfectly optimised for Real and Virtual DMD setups, supporting both 128x32 and 256x64 (HD) resolutions."
+        Public Const PluginVersion As String = "2.0"
         Dim Dummy As String
     End Structure
 
@@ -89,15 +92,17 @@ Namespace PinballX
         Public Shared Logger As New DracLabs.Logger
         Private _iniFile As New DracLabs.IniFile
 
-        Private _FLEXDMD As New FlexDMD
         Private _UseHD As Boolean = False
+
+        Private _FLEXDMD As FlexDMDEngine
+        Private _carousel As CarouselManager
 
         'Pinball X media folders
 
         Private blnInGame As Boolean = False 'track if game selected/active, if user presses pause we don't want to display stat screen
         Private blnAttractModeActive As Boolean = False 'tracks id Screensaver mode is active
 
-        'pbx system tpyes, 0-4 match those in use by pbx at time of writing. Others don't have a type number assigned in pbx they are named systems.
+        'pbx system tyes, 0-4 match those in use by pbx at time of writing. Others don't have a type number assigned in pbx they are named systems.
         Private Const SYSTYPE_CUSTOM0 As Integer = 0 'pbx can use 0 or 3 as system type for custom
         Private Const SYSTYPE_VISUALPINBALL As Integer = 1
         Private Const SYSTYPE_FUTUREPINBALL As Integer = 2
@@ -115,8 +120,24 @@ Namespace PinballX
         Private MediaIsImage As Boolean = False
         Private VideoLoopCount As Integer = 0
         Private TargetLoops As Integer = 3
-        Private ImageTimerCounter As Integer = 0 ' Teller voor de 60 seconden bij images
+        Private ImageTimerCounter As Integer = 0
         Private VideoStartedTime As DateTime
+
+        Private lastSystem As String, lastTable As String, lastMedia As String, LastHighscoreText As String
+        Private ExtraSeconds As Integer = 0
+
+        ' PinemHi categories to show in the carousel, in the following order. 
+        Private ReadOnly _pinemHiCategories As String() = {
+                        "TOP10_Personal", "TOP10_Personal_Specials", "TOP10_Personal_5min",
+                        "TOP10_Best", "TOP10_Best_5min", "TOP10_Friends",
+                        "TOP10_Friends_5min", "TOP10_Cup", "TOP10_Cup_5min"
+                    }
+        Private _pinemHiPath As String
+        Private _showBadges As Boolean
+        Private _badgeDurationMs As Integer
+        Private _activeScoreCategories As New List(Of String)
+        Private Shared _cachedTable As DataTable = Nothing
+        Private Shared _lastXmlFile As String = String.Empty
 
         <StructLayout(LayoutKind.Sequential)>
         Public Structure PlugInInfo_1
@@ -150,183 +171,171 @@ Namespace PinballX
                 Dim logPath As String = Path.Combine(pluginDir, dllName & ".log")
                 Dim iniPath As String = Path.Combine(pluginDir, dllName & ".ini")
 
-                Dim buseHD As Boolean = False
-
                 Logger.Initialize(dllName, PluginInfo.Version, logPath)
-                Logger.Log_Data("----------------------------------------------------------------")
-                Logger.Log_Data("Initialize Start : Plugin Version " & PluginInfo.Version)
+                LogInfo("----------------------------------------------------------------")
+                LogInfo("Initializing FlexDMD Plugin Version " & PluginInfo.Version)
 
-                If File.Exists(iniPath) Then
-                    _iniFile.Load(iniPath)
-                    Logger.Log_Data("INI Loaded: " & iniPath)
-                    _UseHD = CBool(_iniFile.GetKeyValue("FlexDMD", "UseHD"))
+                If Not File.Exists(iniPath) Then
+                    LogError("Configuration file not found: " & iniPath)
+                    Return False
                 End If
 
-                If Not _FLEXDMD.Init(_UseHD) Then Return False
-                Logger.Log_Data("FlexDMD Initialize Completed")
-                Dim strText As String = String.Empty
-                If _UseHD Then
-                    strText = $"{PluginInfo.Name.Replace("FLEXDMD", "FLEXDMD HD")} {PluginInfo.Version}{vbCrLf}INITIALIZED SUCCESFULLY{vbCrLf}BY {PluginInfo.Author}"
-                Else
-                    strText = $"{PluginInfo.Name} {PluginInfo.Version} INITIALIZED SUCCESFULLY"
-                End If
-                _FLEXDMD.DisplayLine(strText)
+                _iniFile.Load(iniPath)
+                LogInfo("INI Loaded: " & iniPath)
 
+                _UseHD = ParseBool(_iniFile.GetKeyValue("FlexDMD", "UseHD"), False)
 
-                Logger.Log_Data("Initialize Success")
-                Return True
-            Catch ex As Exception
-                Logger.Log_Error($"Initialize: {ex.Message}")
-                MsgBox(ex.Message)
-                Return False
-            End Try
-        End Function
+                _FLEXDMD = New FlexDMDEngine()
+                _FLEXDMD.DllPath = _iniFile.GetKeyValue("FlexDMD", "FlexDMDDllPath")
 
-        Public Function ProcessGameRun(ByVal InfoPtr As IntPtr) As Boolean
-            'Called when a game is launched
-            Dim Info As PlugInInfo_1 = CType(Marshal.PtrToStructure(InfoPtr, GetType(PlugInInfo_1)), PlugInInfo_1)
-            Try
-                Static strLastsystemXMLfile As String = String.Empty
-                Static dtXMLFile As DataTable
-                Dim strTable As String = String.Empty
                 Try
-                    strTable = Info.GameName.ToString
-                Catch ex As Exception
-                    strTable = String.Empty
-                End Try
-                Dim strSystem As String = String.Empty
-                Try
-                    strSystem = Info.SystemName.ToString
-                Catch ex As Exception
-                    strSystem = String.Empty
-                End Try
+                    Dim colorVal As String = _iniFile.GetKeyValue("PinballX", "DMDColour")
+                    If String.IsNullOrEmpty(colorVal) Then colorVal = "Red"
 
-                blnInGame = True
+                    colorVal = colorVal.Trim()
 
-
-                Dim strSystemXMLFile As String = My.Application.Info.DirectoryPath & "\Databases\" & strSystem & "\" & strSystem & ".xml"
-
-                If Not String.IsNullOrEmpty(strTable) Then
-                    If strSystemXMLFile <> strLastsystemXMLfile OrElse IsNothing(dtXMLFile) Then
-                        Logger.Log_Data("Event_GameRun: Retrieving data from [" & strSystemXMLFile & "]")
-                        dtXMLFile = GetDatasetFromXMLFile(strSystemXMLFile)
-                    End If
-
-                    Dim row As DataRow = dtXMLFile.Select(dtXML.Name & " like '" & EscapeLikeValue(strTable) & "' and " & dtXML.HideDMD & " = 'False'").FirstOrDefault() 'just check if we have a gamename where we must show the DMD during game play
-                    If row Is Nothing Then
-                        Logger.Log_Data("Event_GameRun: Table - '" & strTable & "', System - '" & strSystem & "'")
-                        _FLEXDMD.HideDMD()
+                    If colorVal.Contains(",") Then
+                        Dim rgb As String() = colorVal.Split(","c)
+                        If rgb.Length = 3 Then
+                            _FLEXDMD.DMDColor = Color.FromArgb(CInt(rgb(0)), CInt(rgb(1)), CInt(rgb(2)))
+                        End If
+                    ElseIf colorVal.StartsWith("#") Then
+                        _FLEXDMD.DMDColor = ColorTranslator.FromHtml(colorVal)
                     Else
-                        Logger.Log_Data("Event_GameRun: Table - '" & strTable & "', System - '" & strSystem & "', Not Hiding DMD")
+                        _FLEXDMD.DMDColor = Color.FromName(colorVal)
                     End If
-                Else
-                    Logger.Log_Data("Event_GameRun: Table - '" & strTable & "', System - '" & strSystem & "'")
-                    _FLEXDMD.HideDMD()
+                Catch ex As Exception
+                    _FLEXDMD.DMDColor = Color.Red
+                    LogError("Error parsing DMDColor, defaulting to Red: " & ex.Message)
+                End Try
+
+                If Not _FLEXDMD.Init(useHD:=_UseHD) Then
+                    LogError("Failed to initialize FlexDMD COM object.")
+                    Return False
                 End If
 
-                strLastsystemXMLfile = strSystemXMLFile
+                _carousel = New CarouselManager(_FLEXDMD)
+
+                ' General Settings
+                _carousel.UseHd = _UseHD
+                _carousel.ShowMedia = ParseBool(_iniFile.GetKeyValue("PinballX", "ShowMedia"), True)
+                _carousel.MaxVideoLoops = ParseInt(_iniFile.GetKeyValue("PinballX", "MaxVideoLoops"), 3)
+                _carousel.ImageDuration = ParseDouble(_iniFile.GetKeyValue("PinballX", "ImageDuration"), 5.0)
+                _carousel.ShowPBXHighscores = ParseBool(_iniFile.GetKeyValue("PinballX", "ShowHighscores"), True)
+
+                ' Clock Settings
+                _carousel.ShowClock = ParseBool(_iniFile.GetKeyValue("Clock", "ShowClock"), True)
+                _carousel.ShowClockEverySeconds = ParseInt(_iniFile.GetKeyValue("Clock", "ShowClockEverySeconds"), 60)
+                _carousel.ClockDuration = ParseDouble(_iniFile.GetKeyValue("Clock", "ClockDuration"), 10.0)
+                _carousel.Show24h = ParseBool(_iniFile.GetKeyValue("Clock", "Show24h"), True)
+
+                ' Global Debug
+                GlobalConfig.DebugMode = ParseBool(_iniFile.GetKeyValue("Settings", "Debug"), False)
+
+                ' PINemHi Configuration
+                _pinemHiPath = _iniFile.GetKeyValue("PINemHi", "PinemHiPath")
+                _carousel.ShowPinemHiCountdown = ParseBool(_iniFile.GetKeyValue("PINemHi", "ShowCountdown"), True)
+                _carousel.ExtraSeconds = ParseInt(_iniFile.GetKeyValue("PINemHi", "ExtraSeconds"), 10)
+                _carousel.ShowPinemHiScores = ParseBool(_iniFile.GetKeyValue("PINemHi", "ShowHighscores"), True)
+
+                ' Badge Settings
+                _carousel.ShowPinemHiBadges = ParseBool(_iniFile.GetKeyValue("PINemHi", "ShowBadges"), False)
+                Dim txtEarned As String = _iniFile.GetKeyValue("PINemHi", "BadgesEarnedText")
+                If Not String.IsNullOrEmpty(txtEarned) Then _carousel.PinemHighBadgesEarned = txtEarned
+
+                Dim txtNone As String = _iniFile.GetKeyValue("PINemHi", "NoBadgesText")
+                If Not String.IsNullOrEmpty(txtNone) Then _carousel.PinemHighNoBadgesEarned = txtNone
+
+                ' Check for external awesome Scutter PinemHi Launcher (5 min Weekly Challenge)
+                If _carousel.ShowPinemHiCountdown Then
+                    Dim pinemhiPluginIni As String = Path.Combine(My.Application.Info.DirectoryPath, "Plugins", "PBXPinemhiLauncher.ini")
+                    If File.Exists(pinemhiPluginIni) Then
+                        Dim launcherIni As New DracLabs.IniFile
+                        launcherIni.Load(pinemhiPluginIni)
+                        _carousel.Weekly5MinChallengeTable = launcherIni.GetKeyValue("Tables", "WeeklyChallenge5minTableDesc")
+                        LogInfo("Weekly Challenge table loaded: " & _carousel.Weekly5MinChallengeTable)
+                    Else
+                        LogInfo("PBXPinemhiLauncher.ini not found. Countdown interrupt disabled.")
+                        _carousel.ShowPinemHiCountdown = False
+                    End If
+                End If
+
+                If _carousel.ShowPinemHiScores Then
+                    _activeScoreCategories.Clear()
+                    For Each category In _pinemHiCategories
+                        Dim showCat As Boolean = ParseBool(_iniFile.GetKeyValue("PINemHi", "Show_" & category), False)
+                        LogInfo($"PINemHi Category [{category}] active: {showCat}")
+                        If showCat Then _activeScoreCategories.Add(category)
+                    Next
+                End If
+
+                LogInfo($"Badges Enabled: {_carousel.ShowPinemHiBadges}")
+                If _carousel.ShowPinemHiBadges Then
+                    LogInfo($"Badge Text (Earned): {_carousel.PinemHighBadgesEarned}")
+                    LogInfo($"Badge Text (None): {_carousel.PinemHighNoBadgesEarned}")
+                End If
+
+                Dim line1 As String, line2 As String, line3 As String
+                If _UseHD Then
+                    line1 = $"{PluginInfo.Name.Replace("FLEXDMD", "FLEXDMD HD")} {PluginInfo.Version}"
+                    line2 = "INITIALIZED SUCCESSFULLY"
+                    line3 = $"BY {PluginInfo.Author}"
+                Else
+                    line1 = PluginInfo.Name
+                    line2 = $"VERSION {PluginInfo.Version}"
+                    line3 = "STATUS: OPERATIONAL"
+                End If
+
+                _carousel.StartWithSplash(line1, line2, line3)
+
+                LogSummary()
+
+                LogInfo("Initialize Success")
+                Return True
 
             Catch ex As Exception
-                Logger.Log_Data("Event_GameRun Error : " & ex.Message)
+                LogError($"Initialize Critical Error: {ex.Message}")
+                Return False
+            Finally
+                LogInfo("----------------------------------------------------------------")
             End Try
-            Return True
         End Function
 
-        Public Sub processGameSelect(ByVal InfoPtr As IntPtr)
-            'Called when a game is selected
-            Dim Info As PlugInInfo_1 = CType(Marshal.PtrToStructure(InfoPtr, GetType(PlugInInfo_1)), PlugInInfo_1)
-            Dim intSystemType As Integer = SYSTYPE_OTHER
+#Region " Initialization Helpers "
 
-            If blnInGame = False Then 'this event also fires if pause button is hit, so if ingame don't do anything.
-                Try
-                    Dim strSystemName As String = String.Empty
-                    Try
-                        strSystemName = Info.SystemName.ToString
-                    Catch ex As Exception
-                        strSystemName = String.Empty
-                    End Try
-                    Dim strSystem As String = String.Empty
-                    Try
-                        strSystem = Info.System.ToString
-                    Catch ex As Exception
-                        strSystem = ""
-                    End Try
-                    Dim strTableDesc As String = String.Empty
-                    Try
-                        strTableDesc = Info.GameDescription.ToString
-                    Catch ex As Exception
-                        strTableDesc = String.Empty
-                    End Try
-                    Dim strTableName As String = String.Empty
-                    Try
-                        strTableName = Info.GameName.ToString
-                    Catch ex As Exception
-                        strTableName = String.Empty
-                    End Try
-                    'get system type for non 'other' systems
-                    Select Case LCase(strSystemName)
-                        Case "visualpinball"
-                            intSystemType = SYSTYPE_VISUALPINBALL
-                        Case "futurepinball"
-                            intSystemType = SYSTYPE_FUTUREPINBALL
-                        Case "pinballfx2"
-                            intSystemType = SYSTYPE_PINBALLFX2
-                        Case "pinballfx3"
-                            intSystemType = SYSTYPE_PINBALLFX3
-                        Case "pinballarcade"
-                            intSystemType = SYSTYPE_PINBALLARCADE
-                        Case "zaccaria"
-                            intSystemType = SYSTYPE_ZACCARIAPINBALL
-                        Case "mame"
-                            intSystemType = SYSTYPE_CUSTOM
-                        Case Else
-                            ' intSystemType = SYSTYPE_OTHER when dimmed so leave as that
-                            'can't put an else here anyway as will overwrite values from  For cnt = 0 To 19 loop
-                    End Select
+        Private Function ParseBool(value As String, defaultValue As Boolean) As Boolean
+            If String.IsNullOrEmpty(value) Then Return defaultValue
+            Dim cleanValue As String = value.Trim().ToLower()
+            If cleanValue = "true" OrElse cleanValue = "1" OrElse cleanValue = "yes" Then Return True
+            If cleanValue = "false" OrElse cleanValue = "0" OrElse cleanValue = "no" Then Return False
+            Return defaultValue
+        End Function
 
+        Private Function ParseInt(value As String, defaultValue As Integer) As Integer
+            Dim result As Integer
+            If Integer.TryParse(value, result) Then Return result
+            Return defaultValue
+        End Function
 
-                    Dim strSystemVideoPath As String = My.Application.Info.DirectoryPath & "\Media\" & strSystemName
-
-                    If Not IO.Directory.Exists(strSystemVideoPath) Then
-                        Logger.Log_Data("Event_GameSelect : Directory not exists : " & strSystemVideoPath)
-                        Exit Sub
-                    End If
-
-                    'If blnAttractModeActive = True Then
-                    '    'Attractmode
-                    '    If String.IsNullOrEmpty(strTableName) Then
-                    '        Logger.Log_Data("Event_GameSelect : Get System Data AtrractMode : SystemName = " & strSystemName & " : System = " & strSystem & " : TableDesc = " & strTableDesc)
-                    '        FLEXDMD.DisplayVideo(strSystemVideoPath & "\Real DMD Color Videos\- system -.mp4")
-                    '        'properly this is System
-                    '    Else
-                    '        Logger.Log_Data("Event_GameSelect : Get System Data AtrractMode : SystemName = " & strSystemName & " : System = " & strSystem & " : TableDesc = " & strTableDesc & " : TableName = " & strTableName)
-
-                    '        FLEXDMD.DisplayVideo(strSystemVideoPath & "\Real DMD Color Videos\" & strTableName & ".mp4")
-                    '        'This is table 
-                    '    End If
-                    'Else
-                    '    'none attract mode
-                    '    Dim strVideoFile = GetMediaFile(My.Application.Info.DirectoryPath, strSystemName, strTableName, strTableDesc)
-                    '    Logger.Log_Data("Event_GameSelect : Get System Data : SystemName = " & strSystemName & " : System = " & strSystem & " : TableDesc = " & strTableDesc & " : TableName = " & strTableName)
-                    '    FLEXDMD.DisplayVideo(strVideoFile)
-                    'End If
-
-                    Dim strMediaFile = GetMediaFile(My.Application.Info.DirectoryPath, strSystemName, strTableName, strTableDesc)
-                    Logger.Log_Data("Event_GameSelect : Get System Data : SystemName = " & strSystemName & " : System = " & strSystem & " : TableDesc = " & strTableDesc & " : TableName = " & strTableName & " : VideoFile = " & strMediaFile)
-
-                    _FLEXDMD.DisplayMedia(strMediaFile)
-
-
-                    'FLEXDMD.DisplayVideo("C:\Pinball\Visual Pinball\Tables\VPX\Diablo.UltraDMD\extra-ball.wmv")
-                    'FLEXDMD.DisplayVideo("C:\Pinball\PinballX\Media\Videos\No Real DMD Color.avi")
-                    'extra-ball.wmv
-                    'FLEXDMD.DisplayVideo("C:\Pinball\PinballX\Media\Visual Pinball\Real DMD Color Images\WhoDunnit_1.0.gif")
-                Catch ex As Exception
-                    Logger.Log_Data("Event_GameSelect Error : " & ex.Message)
-                End Try
+        Private Function ParseDouble(value As String, defaultValue As Double) As Double
+            Dim result As Double
+            If Double.TryParse(value.Replace(","c, "."c), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, result) Then
+                Return result
             End If
+            Return defaultValue
+        End Function
+
+        Private Sub LogSummary()
+            LogInfo("Display Mode: " & If(_UseHD, "HD", "Standard"))
+            LogInfo("DMD Colour (RGB): " & $"{_FLEXDMD.DMDColor.R},{_FLEXDMD.DMDColor.G},{_FLEXDMD.DMDColor.B}")
+            LogInfo("Show Media: " & _carousel.ShowMedia)
+            LogInfo("Show Clock: " & _carousel.ShowClock & " (Every " & _carousel.ShowClockEverySeconds & "s)")
+            LogInfo("Show PBX Scores: " & _carousel.ShowPBXHighscores)
+            LogInfo("Show PINemHi Scores: " & _carousel.ShowPinemHiScores)
+            LogInfo("Show PINemHi Badges: " & _carousel.ShowPinemHiBadges)
         End Sub
 
+#End Region
         Private Function GetMediaFile(ByVal PinballXMediaPath As String, ByVal SystemName As String, ByVal TableName As String, ByVal TableDescription As String) As String
             Try
 
@@ -392,13 +401,53 @@ Namespace PinballX
 
                 Return ""
             Catch ex As Exception
-                Logger.Log_Data("GetMediaFile Error : " & ex.Message)
+                LogError("GetMediaFile Error : " & ex.Message)
                 Return ""
             End Try
 
 
         End Function
 
+        Private Function GetPBXHighscoreText(ByVal pbxPath As String, ByVal systemName As String, ByVal tableName As String) As String
+            Try
+                Dim highScoresDir As String = Path.Combine(pbxPath, "High Scores", systemName)
+                Dim textFilePath As String = Path.Combine(highScoresDir, tableName & ".txt")
+
+                If File.Exists(textFilePath) Then
+                    Return File.ReadAllText(textFilePath)
+                End If
+            Catch ex As Exception
+                LogError("GetPBXHighscoreText Error: " & ex.Message)
+            End Try
+            Return ""
+        End Function
+
+        Private Function GetRomName(systemName As String, gameName As String) As String
+            Try
+                Dim xmlFile As String = IO.Path.Combine(My.Application.Info.DirectoryPath, "Databases", systemName, systemName & ".xml")
+
+                ' Load XML data if it's a new system or not yet loaded
+                If xmlFile <> _lastXmlFile OrElse _cachedTable Is Nothing Then
+                    _cachedTable = GetDatasetFromXMLFile(xmlFile)
+                    _lastXmlFile = xmlFile
+                End If
+
+                If _cachedTable IsNot Nothing Then
+                    ' Find the table in the XML
+                    Dim query As String = $"name LIKE '{EscapeLikeValue(gameName)}'"
+                    Dim row As DataRow = _cachedTable.Select(query).FirstOrDefault()
+
+                    ' Extract the ROM name if the row and column exist
+                    If row IsNot Nothing AndAlso _cachedTable.Columns.Contains("rom") AndAlso Not IsDBNull(row("rom")) Then
+                        Return row("rom").ToString()
+                    End If
+                End If
+            Catch ex As Exception
+                LogError("DatabaseHelper.GetRomName Error: " & ex.Message)
+            End Try
+
+            Return String.Empty
+        End Function
         Private Function GetDatasetFromXMLFile(strXMLFile As String) As DataTable
             Dim dsXMLFile As New DataSet
 
@@ -442,7 +491,7 @@ Namespace PinballX
                     Return Nothing
                 End If
             Catch ex As Exception
-                Logger.Log_Error(ex.Message)
+                LogError(ex.Message)
                 Return Nothing
             End Try
 
@@ -472,47 +521,361 @@ Namespace PinballX
             Return sb.ToString()
         End Function
 
-        Public Sub processApp_Exit()
+        Private Function ReformatPinemhiScore(text As String, useHD As Boolean) As String
             Try
-                _FLEXDMD.Close()
+
+                If String.IsNullOrEmpty(text) Then Return ""
+                If text.ToUpper().Contains("NOT SUPPORTED YET") Then Return ""
+
+                Dim cleanedText As String = text
+
+                cleanedText = System.Text.RegularExpressions.Regex.Replace(cleanedText, "\b\d{4}[/-]\d{1,2}[/-]\d{1,2}(?:\s+\d{2}:\d{2}:\d{2})?\b", "")
+                cleanedText = System.Text.RegularExpressions.Regex.Replace(cleanedText, "\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}(?:\s+\d{2}:\d{2}:\d{2})?\b", "")
+
+                Dim rawLines = cleanedText.Split({vbCrLf, vbLf, "|"}, StringSplitOptions.None).Select(Function(l) l.Trim()).ToList()
+                Dim lines As New List(Of String)
+
+                Dim scoreTypeIndex As Integer = -1
+                Dim newHeader As String = ""
+                Dim is5Min As Boolean = text.ToUpper().Contains("5 MINUTE MODE")
+                Dim prefix = If(is5Min, "-- PINEMHI 5-Min --", "-- PINEMHI --")
+                Dim subTitle As String = ""
+
+                For i As Integer = 0 To Math.Min(rawLines.Count - 1, 10)
+                    Dim lineUpper = rawLines(i).ToUpper()
+
+                    If lineUpper.Contains("TOP 10 HIGHEST") Then
+                        subTitle = "Global Highscores"
+                    ElseIf lineUpper.Contains("TOP 10 FRIEND") Then
+                        subTitle = "Friends Leaderboard"
+                    ElseIf lineUpper.Contains("TOP 10 PERSONAL") Then
+                        subTitle = "Personal Bests"
+                    ElseIf lineUpper.Contains("CUP STANDINGS") Then
+                        subTitle = "Cup Standings"
+                    End If
+
+                    If Not String.IsNullOrEmpty(subTitle) Then ' if match then we found the header for the scores, we can stop looking
+                        scoreTypeIndex = i
+                        newHeader = $"{prefix}{vbCrLf}{vbCrLf}{subTitle}"
+                        Exit For
+                    End If
+                Next
+
+                If scoreTypeIndex <> -1 Then
+                    lines.Add(newHeader)
+                    lines.Add("")
+                    Dim hasScores As Boolean = False
+                    For i As Integer = scoreTypeIndex + 1 To rawLines.Count - 1
+                        If Not String.IsNullOrEmpty(rawLines(i)) AndAlso System.Text.RegularExpressions.Regex.IsMatch(rawLines(i), "\d") Then
+                            hasScores = True
+                            Exit For
+                        End If
+                    Next
+
+                    If Not hasScores Then
+                        lines.Add("No Scores Achieved")
+                    Else
+                        For i As Integer = scoreTypeIndex + 1 To rawLines.Count - 1
+                            ProcessScoreLine(rawLines(i), lines, useHD, newHeader.Contains("Personal"))
+                        Next
+                    End If
+                Else
+                    For Each line In rawLines
+                        ProcessScoreLine(line, lines, useHD, False)
+                    Next
+                End If
+
+                Dim result = String.Join(vbCrLf, lines)
+                Return result.Trim()
             Catch ex As Exception
+                LogError("ReformatPinemhiScore Error : " & ex.Message)
+                Return text
             End Try
-        End Sub
-
-
-#Region "PinballX Events"
-
-        Public Sub Event_App_Exit()
-            'called when pinballx exits
-            Logger.Log_Data("Event: App_Exit")
-            processApp_Exit()
-        End Sub
-
-        Public Sub Event_GameSelect(ByVal InfoPtr As IntPtr)
-            processGameSelect(InfoPtr)
-        End Sub
-
-        Public Function Event_GameRun(ByVal InfoPtr As IntPtr) As Boolean
-            Try
-                Logger.Log_Data("Event: GameRun - Hiding badges")
-                Return ProcessGameRun("InfoPtr")
-            Catch ex As Exception
-                Logger.Log_Error($"Event: GameRun Error: {ex.Message}")
-                Return False
-            End Try
-
         End Function
 
-        Public Function Event_Parameters(ByVal InfoPtr As IntPtr) As String
-            'Called when PinballX builds the command line for the game
+        Private Function ReformatPinemhiSpecial(text As String, useHD As Boolean) As String
+            Try
+                If String.IsNullOrEmpty(text) Then Return ""
+
+                Dim rawLines = text.Split({vbCrLf, vbLf, "|"}, StringSplitOptions.None).ToList()
+                Dim lines As New List(Of String)
+
+                lines.Add("-- PINEMHI --")
+                lines.Add("")
+                lines.Add("Personal Special Achievements")
+                lines.Add("")
+
+                If rawLines.Count > 4 Then
+                    For i As Integer = 4 To rawLines.Count - 1
+                        Dim currentLine = rawLines(i).Trim()
+                        ProcessScoreLine(currentLine, lines, useHD, False)
+                    Next
+                Else
+                    lines.Add("No Achievements yet")
+                End If
+
+                Dim result = String.Join(vbCrLf, lines)
+
+                result = System.Text.RegularExpressions.Regex.Replace(result, "(\r\n|\r|\n){3,}", vbCrLf & vbCrLf)
+
+                Return result.Trim()
+            Catch ex As Exception
+                LogError("ReformatPinemhiSpecial Error : " & ex.Message)
+                Return text
+            End Try
+        End Function
+        Private Sub ProcessScoreLine(line As String, ByRef lines As List(Of String), useHD As Boolean, isPersonal As Boolean)
+            Try
+                Dim cleanedLine = line.Trim()
+                If String.IsNullOrEmpty(cleanedLine) Then
+                    If lines.Count > 0 AndAlso Not String.IsNullOrEmpty(lines.Last()) Then
+                        lines.Add("")
+                    End If
+                    Exit Sub
+                End If
+
+                If isPersonal Then
+                    cleanedLine = System.Text.RegularExpressions.Regex.Replace(cleanedLine, "^(\d+\s+[\d\.,]+)\s+.*", "$1")
+                    lines.Add(cleanedLine)
+
+                ElseIf Not useHD AndAlso System.Text.RegularExpressions.Regex.IsMatch(cleanedLine, "^\d+\s{2,}") Then
+
+                    If lines.Count > 0 AndAlso Not String.IsNullOrEmpty(lines.Last()) Then
+                        lines.Add("")
+                    End If
+
+                    Dim parts = System.Text.RegularExpressions.Regex.Split(cleanedLine, "\s{2,}")
+                    For Each part In parts
+                        If Not String.IsNullOrEmpty(part) Then
+                            lines.Add(part.Trim())
+                        End If
+                    Next
+
+                Else
+                    lines.Add(cleanedLine)
+                End If
+            Catch ex As Exception
+                LogError("ProcessScoreLine Error : " & ex.Message)
+            End Try
+        End Sub
+
+
+        Public Function Process_GameRun(ByVal InfoPtr As IntPtr) As Boolean
             Dim Info As PlugInInfo_1 = CType(Marshal.PtrToStructure(InfoPtr, GetType(PlugInInfo_1)), PlugInInfo_1)
-            Dim CmdLine As String = Info.Parameters
-            Logger.Log_Data($"Event: Parameters - CmdLine:[{CmdLine}]")
-            Return CmdLine
+            Try
+                Static strLastsystemXMLfile As String = String.Empty
+                Static dtXMLFile As DataTable
+                Dim strTable As String = Info.GameName.ToString()
+                Dim strSystem As String = Info.SystemName.ToString()
+
+                blnInGame = True
+                Dim strSystemXMLFile As String = My.Application.Info.DirectoryPath & "\Databases\" & strSystem & "\" & strSystem & ".xml"
+
+                If Not String.IsNullOrEmpty(strTable) Then
+
+                    If strSystemXMLFile <> strLastsystemXMLfile OrElse IsNothing(dtXMLFile) Then
+                        dtXMLFile = GetDatasetFromXMLFile(strSystemXMLFile)
+                    End If
+                    Dim row As DataRow = dtXMLFile.Select(dtXML.Name & " like '" & EscapeLikeValue(strTable) & "'").FirstOrDefault()
+                    Dim isHideDMD As Boolean = (row Is Nothing OrElse row(dtXML.HideDMD).ToString().ToLower() = "true")
+
+                    Dim isWeeklyChallenge As Boolean = False
+                    LogDebug("Checking if table '" & strTable & "' is the Weekly Challenge table.")
+                    If _carousel.ShowPinemHiCountdown AndAlso Not String.IsNullOrEmpty(_carousel.Weekly5MinChallengeTable) Then
+                        If strTable.Equals(_carousel.Weekly5MinChallengeTable, StringComparison.OrdinalIgnoreCase) Then
+                            isWeeklyChallenge = True
+                        End If
+                    End If
+
+                    If isWeeklyChallenge Then
+                        LogInfo("MATCH: Weekly Challenge detected for '" & strTable & "'. Ignoring HideDMD. Starting countdown.")
+                        Dim totalSeconds As Integer = 300
+                        Dim msg As String = "WEEKLY 5 MIN CHALLENGE"
+                        _carousel.StartPinemHiCountdown(totalSeconds, msg)
+
+                    Else
+                        If isHideDMD Then
+                            Logger.Log_Data("Event_GameRun: HideDMD is active for '" & strTable & "'. Stopping media.")
+                            If _carousel.ShowStartMessage Then
+                                Logger.Log_Data("WARNING: Cannot show Start Message because HideDMD is enabled for this table.")
+                            End If
+
+                            If _carousel IsNot Nothing Then
+                                _carousel.Stop()
+                            End If
+                        Else
+                            Logger.Log_Data("Event_GameRun: Table '" & strTable & "' - DMD remains active.")
+                            If _carousel.ShowStartMessage Then
+                                _FLEXDMD.ShowMessage("STARTING: " & strTable)
+                            End If
+                        End If
+                    End If
+                End If
+
+                strLastsystemXMLfile = strSystemXMLFile
+                Return True
+            Catch ex As Exception
+                LogError("Event_GameRun Error : " & ex.Message)
+                Return True
+            Finally
+
+            End Try
+
         End Function
 
-        Public Sub Event_GameExit(ByVal InfoPtr As IntPtr)
-            Logger.Log_Data("Event: GameExit - Re-evaluating badges")
+        Public Sub Process_GameSelect(ByVal InfoPtr As IntPtr)
+
+            Dim Info As PlugInInfo_1 = CType(Marshal.PtrToStructure(InfoPtr, GetType(PlugInInfo_1)), PlugInInfo_1)
+            Dim intSystemType As Integer = SYSTYPE_OTHER
+
+            If Not blnInGame = False Then Exit Sub 'this event also fires if pause button is hit, so if ingame don't do anything.
+            Try
+                Dim strSystemName As String = String.Empty
+                Try
+                    strSystemName = Info.SystemName.ToString
+                Catch ex As Exception
+                    strSystemName = String.Empty
+                End Try
+                Dim strSystem As String = String.Empty
+                Try
+                    strSystem = Info.System.ToString
+                Catch ex As Exception
+                    strSystem = ""
+                End Try
+                Dim strTableDesc As String = String.Empty
+                Try
+                    strTableDesc = Info.GameDescription.ToString
+                Catch ex As Exception
+                    strTableDesc = String.Empty
+                End Try
+                Dim strTableName As String = String.Empty
+                Try
+                    strTableName = Info.GameName.ToString
+                Catch ex As Exception
+                    strTableName = String.Empty
+                End Try
+                'get system type for non 'other' systems
+                Select Case LCase(strSystemName)
+                    Case "visualpinball"
+                        intSystemType = SYSTYPE_VISUALPINBALL
+                    Case "futurepinball"
+                        intSystemType = SYSTYPE_FUTUREPINBALL
+                    Case "pinballfx2"
+                        intSystemType = SYSTYPE_PINBALLFX2
+                    Case "pinballfx3"
+                        intSystemType = SYSTYPE_PINBALLFX3
+                    Case "pinballarcade"
+                        intSystemType = SYSTYPE_PINBALLARCADE
+                    Case "zaccaria"
+                        intSystemType = SYSTYPE_ZACCARIAPINBALL
+                    Case "mame"
+                        intSystemType = SYSTYPE_CUSTOM
+                    Case Else
+                        ' intSystemType = SYSTYPE_OTHER when dimmed so leave as that
+                        'can't put an else here anyway as will overwrite values from  For cnt = 0 To 19 loop
+                End Select
+
+
+                Dim strSystemVideoPath As String = My.Application.Info.DirectoryPath & "\Media\" & strSystemName
+
+                If Not IO.Directory.Exists(strSystemVideoPath) Then
+                    Logger.Log_Data("Event_GameSelect : Directory not exists : " & strSystemVideoPath)
+                    Exit Sub
+                End If
+
+                Dim strMediaFile = GetMediaFile(My.Application.Info.DirectoryPath, strSystemName, strTableName, strTableDesc)
+
+                Dim highscoreList As New List(Of String)
+
+                If _carousel.ShowPBXHighscores Then
+                    Dim PBXHighscoreText = GetPBXHighscoreText(My.Application.Info.DirectoryPath, strSystemName, strTableName)
+                    If Not String.IsNullOrWhiteSpace(PBXHighscoreText) Then
+                        LogDebug($"PBX: Highscore data found. {vbCrLf}{PBXHighscoreText}")
+                        PBXHighscoreText = $"Local table Rankings{vbCrLf}{PBXHighscoreText}"
+                        highscoreList.Add(PBXHighscoreText)
+                    Else
+                        LogDebug($"PBX: No highscore data found.")
+                    End If
+                End If
+
+
+                Dim badgesList As New List(Of PinemHiManager.BadgeResult)
+
+                ' Check if PinemHi features (Scores or Badges) are enabled
+                If _carousel.ShowPinemHiScores OrElse _carousel.ShowPinemHiBadges Then
+                    Dim romName As String = GetRomName(strSystemName, strTableName)
+
+                    If Not String.IsNullOrEmpty(romName) Then
+                        LogInfo($"ROM identified: '{romName}' for system '{strSystemName}'. Processing PinemHi data...")
+
+                        ' Create the manager once
+                        Dim phManager As New PinemHiManager(_pinemHiPath)
+
+                        If _carousel.ShowPinemHiScores Then
+                            For Each category In _activeScoreCategories
+                                Dim scoreText As String = phManager.GetLeaderboardData(category, romName)
+
+                                If Not String.IsNullOrEmpty(scoreText) Then
+                                    LogDebug($"PinemHi: Highscore data found for [{category}].")
+                                    Dim cleanPinemhitext As String = String.Empty
+                                    If category = "TOP10_Personal_Specials" Then
+                                        cleanPinemhitext = ReformatPinemhiSpecial(scoreText, _carousel.UseHd)
+                                    Else
+                                        cleanPinemhitext = ReformatPinemhiScore(scoreText, _carousel.UseHd)
+                                    End If
+
+                                    LogDebug($"Reformated PinemHi: scored [{vbCrLf}{cleanPinemhitext}].")
+                                    highscoreList.Add(cleanPinemhitext)
+                                Else
+                                    LogDebug($"PinemHi: No highscore data for [{category}].")
+                                End If
+                            Next
+                        End If
+
+                        If _carousel.ShowPinemHiBadges Then
+                            Dim totalbadgesList = PinemHiManager.GetBadges(_pinemHiPath, romName, False)
+                            badgesList = PinemHiManager.GetBadges(_pinemHiPath, romName, True)
+
+                            Dim totalCount As Integer = If(totalbadgesList IsNot Nothing, totalbadgesList.Count, 0)
+                            Dim earnedCount As Integer = If(badgesList IsNot Nothing, badgesList.Count, 0)
+
+                            LogDebug($"PinemHi Badges: {earnedCount}/{totalCount} earned for ROM '{romName}'.")
+
+                            If earnedCount = 0 AndAlso totalCount > 0 Then
+                                _carousel.PinemHighNoBadgestext = $"{_carousel.PinemHighNoBadgesEarned} (0/{totalCount} unlocked)."
+                            ElseIf earnedCount > 0 Then
+                                _carousel.PinemHighBadgesEarnedtext = $"{_carousel.PinemHighBadgesEarned} ({earnedCount}/{totalCount}) :"
+                            Else
+                                badgesList = Nothing
+                            End If
+                        End If
+
+                    Else
+                        LogInfo($"No ROM mapping found in databases for '{strTableName}' [{strSystemName}]. PinemHi features skipped.")
+                    End If
+                End If
+
+                LogInfo("Event_GameSelect : Get System Data : SystemName = " & strSystemName & " : System = " & strSystem & " : TableDesc = " & strTableDesc & " : TableName = " & strTableName & " : VideoFile = " & strMediaFile)
+                LogDebug("Event_GameSelect : Get System Data : lastSystem = " & lastSystem & " : lastTable = " & lastTable & " : lastMedia = " & lastMedia)
+
+                If strSystemName = lastSystem AndAlso strTableName = lastTable AndAlso strMediaFile = lastMedia Then
+                    LogDebug("Event_GameSelect bypassed: Table data is unchanged.")
+                    Exit Sub
+                ElseIf _carousel IsNot Nothing Then
+                    _carousel.UpdateGameInfo(strMediaFile, highscoreList, badgesList)
+                End If
+
+                lastSystem = strSystemName
+                lastTable = strTableName
+                lastMedia = strMediaFile
+
+            Catch ex As Exception
+                LogError("Process_GameSelect Error : " & ex.Message)
+            End Try
+        End Sub
+
+        Public Sub Process_GameExit(ByVal InfoPtr As IntPtr)
+            'Called when a game is exited
             Dim Info As PlugInInfo_1 = CType(Marshal.PtrToStructure(InfoPtr, GetType(PlugInInfo_1)), PlugInInfo_1)
             Try
                 Dim strTable As String = ""
@@ -528,11 +891,69 @@ Namespace PinballX
                     strSystem = ""
                 End Try
                 blnInGame = False
-
-                Logger.Log_Data($"Event: GameExit: Table - [{strTable}] System - [{strSystem}]")
+                If _carousel IsNot Nothing Then
+                    _carousel.Resume()
+                    _FLEXDMD.LoadFonts()
+                End If
+                LogInfo($"Event: GameExit: Table - [{strTable}] System - [{strSystem}]")
             Catch ex As Exception
-                Logger.Log_Error($"Event: GameExit Fail: {ex.Message}")
+                LogError($" Error: {ex.Message}")
             End Try
+        End Sub
+        Public Sub Process_App_Exit()
+            Try
+                If _carousel IsNot Nothing Then
+                    _carousel.Pause()
+                End If
+                If _FLEXDMD IsNot Nothing Then
+                    _FLEXDMD.ShowMessage("Thats all folks!")
+                    System.Threading.Thread.Sleep(1500)
+                End If
+                If _carousel IsNot Nothing Then
+                    _carousel.Stop()
+                End If
+
+                LogInfo("Event: App_Exit succesfully")
+            Catch ex As Exception
+                LogError($"Event: App_Exit Fail: {ex.Message}")
+            End Try
+        End Sub
+
+
+#Region "PinballX Events"
+
+        Public Sub Event_App_Exit()
+            'called when pinballx exits
+            LogInfo("Event: App_Exit")
+            Process_App_Exit()
+            LogInfo("Event: App_Exit Completed")
+        End Sub
+
+        Public Sub Event_GameSelect(ByVal InfoPtr As IntPtr)
+            Process_GameSelect(InfoPtr)
+        End Sub
+
+        Public Function Event_GameRun(ByVal InfoPtr As IntPtr) As Boolean
+            Try
+                LogInfo("Event: GameRun ")
+                Return Process_GameRun(InfoPtr)
+            Catch ex As Exception
+                LogError($"Event: GameRun Error: {ex.Message}")
+                Return False
+            End Try
+
+        End Function
+
+        Public Function Event_Parameters(ByVal InfoPtr As IntPtr) As String
+            'Called when PinballX builds the command line for the game
+            Dim Info As PlugInInfo_1 = CType(Marshal.PtrToStructure(InfoPtr, GetType(PlugInInfo_1)), PlugInInfo_1)
+            Dim CmdLine As String = Info.Parameters
+            LogInfo($"Event: Parameters - CmdLine:[{CmdLine}]")
+            Return CmdLine
+        End Function
+
+        Public Sub Event_GameExit(ByVal InfoPtr As IntPtr)
+            Process_GameExit(InfoPtr)
         End Sub
 
         Public Function Event_ScreenSaver(ByVal Type As Integer) As Boolean
@@ -543,7 +964,7 @@ Namespace PinballX
                     Case 2 'Exit Screensaver
                 End Select
             Catch ex As Exception
-                Logger.Log_Error($"Event: ScreenSaver Error: {ex.Message}")
+                LogError($"Event: ScreenSaver Error: {ex.Message}")
             End Try
             Return True
         End Function
@@ -557,23 +978,21 @@ Namespace PinballX
             End If
         End Function
 
-
-
         Public Sub Dispose()
             Try
-                Logger.Log_Data("Dispose called")
+                LogInfo("Dispose called")
                 Dispose(True)
                 GC.SuppressFinalize(Me)
             Catch ex As Exception
-                If Logger IsNot Nothing Then Logger.Log_Error($"Dispose Error: {ex.Message}")
+                If Logger IsNot Nothing Then LogError($"Dispose Error: {ex.Message}")
             End Try
         End Sub
 
         Private Sub Dispose(ByVal disposing As Boolean)
             If Not Me.disposed Then
                 If disposing Then
-                    
-                    Logger.Log_Data("Plugin Disposed Successfully")
+
+                    LogInfo("Plugin Disposed Successfully")
                 End If
             End If
             disposed = True
