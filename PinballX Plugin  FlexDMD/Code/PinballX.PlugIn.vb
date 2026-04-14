@@ -799,7 +799,7 @@ Namespace PinballX
                 End If
 
 
-                Dim badgesList As New List(Of PinemHiManager.BadgeResult)
+                Dim badgesList As List(Of PinemHiManager.BadgeResult) = Nothing
 
                 ' Check if PinemHi features (Scores or Badges) are enabled
                 If _carousel.ShowPinemHiScores OrElse _carousel.ShowPinemHiBadges Then

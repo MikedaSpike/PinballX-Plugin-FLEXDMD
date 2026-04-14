@@ -455,7 +455,7 @@ Public Class CarouselManager
         _dmd.SetupCountdown(totalSeconds, challengeText, Show24h)
     End Sub
     Private Function TryBadges() As Boolean
-        If Not ShowPinemHiBadges OrElse CurrentBadges Is Nothing Then
+        If Not ShowPinemHiBadges OrElse CurrentBadges Is Nothing OrElse (CurrentBadges.Count = 0 AndAlso String.IsNullOrEmpty(PinemHighNoBadgestext)) Then
             LogDebug("no badges to display")
             Return False
         End If
