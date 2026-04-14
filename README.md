@@ -1,68 +1,89 @@
-This plugin is created as work around for issues with the XDMD API that is used within PinballX. 
-See : https://forums.gameex.com/forums/topic/27873-realdmd-still-in-use-by-pinballx-after-table-is-launched-when-attract-mode-was-active/ 
-In short : I have a real DMD (PinDMDv3) and after PinballX running attract mode (screensaver  mode) in PinballX and launches a table that uses the DMD (via Pinmame, or DMDext) the display is still in use and nothing is showed during game.
-Exiting the game will sometimes release the DMD again and next launch of table will sometimes works fine. Or I need to relaunch PinballX.
+-----
 
-Side effect is that exiting PinballX could take up minutes to close the XDMD dll.
+# FlexDMD V2.0 for PinballX
+![intro-ezgif com-reverse](https://github.com/user-attachments/assets/4744a745-9010-4098-ae17-74de67dfa3ca)
 
-This plugin will use FLEXDMD (as this is part of Visual Pinball now) and will show the videos from your realDMD directory.
+This plugin was created as a high-performance workaround for long-standing issues with the XDMD API in PinballX.
 
-Pre-requests for this plugin :
+### Why use this plugin?
 
-Working Flex DMD 1.9 or higher (https://github.com/vbousquet/flexdmd/actions For non public version, you need to login to Github)
-Turn off XDMD to initialize the real DMD during start
-This can be accomplished, by editing the PinDMD.ini in your PinballX directory (if not exists create the file) 
-add/modify the next line :
-comport=COM7
-(the comport bust be a non existing comport of your real DMD)
+If you have a real DMD (like PinDMDv3) and use PinballX's attract mode, you might have noticed that the DMD remains "locked" after launching a table, preventing PinMame or DMDext from displaying anything. Additionally, XDMD can cause PinballX to hang for several minutes during shutdown.
 
- 
+**FlexDMD V2.0** replaces the XDMD handling with the modern FlexDMD engine, providing a smoother experience, more features, and instant shutdowns.
 
-Copy from the attached zip file the PBXFlexDMD.dll to your PinballX\Plugin directory
+-----
 
-Starts from your PinballX folder (in your start menu) the option Plugins (or from your PinballX directory PluginManager.exe)
-![image](https://github.com/MikedaSpike/PinballX-Plugin-FLEXDMD/assets/48748234/79679c32-4a64-40c6-9f6f-37d4c131d523)
- 
+## Key Features in V2.0
 
-From the Plugins program, enable FlexDMD Plugin by checking the checkbox and click exit (nothing to configure)
+  * **Complete Configuration UI:** No more "hardcoded" behavior. Fine-tune everything via the Plugin Manager.
+  * **Advanced PINemHi Support:** Cycle through high scores and display earned badges (badges optimized for 256x64 panels).
+  * **Custom DMD Clock:** Display a real-time clock (12h/24h) with adjustable intervals.
+  * **HD Support:** Optimized for both standard (128x32) and HD (256x64 / ZeDMD) panels.
+  * **Color Customization:** Full color picker support for DMD text.
+  * **Challenge Countdown:** Integrated timer for the "PinballX Pinemhi Challenge Table Launcher."
 
-![image](https://github.com/MikedaSpike/PinballX-Plugin-FLEXDMD/assets/48748234/4ecb6525-cf5e-44fb-9db4-81114df79932)
+-----
 
+## Prerequisites
 
-Launch PinballX 
-If FlexDMD is configured correctly you will see on your DMD display :
+  * **FlexDMD 1.9 or higher:** [Download here](https://github.com/vbousquet/flexdmd/releases).
+  * **Disable PinballX XDMD:** To prevent PinballX from initializing the DMD itself, edit `PinDMD.ini` in your PinballX directory (create it if it doesn't exist) and set a non-existent COM port:
+    ```ini
+    comport=COM7
+    ```
 
-![image](https://github.com/MikedaSpike/PinballX-Plugin-FLEXDMD/assets/48748234/0accc0ca-648b-4e65-8266-a67278704210)
+-----
 
+## Installation & Setup
 
-When PinballX is started , you will see the corresponding video for your table.
+1.  Copy `PBXFlexDMD.dll` from the zip file to your `PinballX\Plugins` directory.
+2.  Run `PluginManager.exe` from your PinballX folder.
+3.  Enable the **FlexDMD Plugin** by checking the box.
+4.  **New in 2.0:** Click **Configure** to open the settings menu.
+<img width="712" height="415" alt="image png 4c6ef71fb95ccedaae94c3197cacb66b" src="https://github.com/user-attachments/assets/7a2feea8-3abd-450c-a172-04277f818592" />
 
-The videos are searched in the following order :
+-----
 
-Extension in priority:
-MP4
-AVI
-WMV
-GIF
-PNG
-Name :
-Filename (tablename)
-Table description
-- system -
-\Media\Videos\No Real DMD Color.avi
-This means it will first search for the exact filename (tablename) with extension .MP4. If not found, it will search for the AVI, still not found for a WMV file.
-Not matched, it will do the same on table description (with the extension).
-Still no  match, it will check if there is a file - system -.MP4 (avi and WMV)  
-Still no match , it will display the default \Media\Videos\No Real DMD Color.avi
+## Media Handling
 
-The same as PinballX does, the plugin will look in your XML to the  HideDMD. If this is set to false, it will display the current video during game play.
-As I could not get a good scrolling with FlexDMD, the highscores check in settings.exe will be ignored by now.
+The plugin searches for media in your `Real DMD Videos` or `Real DMD Color Videos` folders in the following order:
 
-In the plugin directory a log file will be created : PBXFlexDMDDisplay.txt
-The log file will show all the events that are happening.
+**1. File Formats:** `.mp4`, `.avi`, `.wmv`, `.gif`, `.png`
+**2. Search Logic:**
 
-If you got any question, requests or need support, just ask and I'm willing to help.
+  * Exact Table Filename
+  * Table Description
+  * `- system -` placeholder
+  * `\Media\Videos\No Real DMD Color.avi` (Default)
 
-Most important thing: A big thanks to @scutters who is the 'PinballX Plugin Wizard' and the overal 'FLEXDMD master'.
-I used parts of his statistics plugin for this plugin, as I was too lazy to do the initialize of FLEXDMD.
-Thanks buddy !
+**Note on High Scores:** Unlike previous versions, V2.0 now fully supports displaying high scores (both PinballX native and PINemHi) with customizable scroll speeds and durations.
+
+-----
+
+## The Carousel Engine
+
+The DMD display operates in a carousel:
+
+1.  **Splash Screen:** Shows on startup (Standard vs HD mode).
+2.  **Table Media:** Video or image loops.
+3.  **PINemHi Badges:** (If enabled and supported by panel size).
+4.  **High Scores:** Native PBX scores and PINemHi leaderboards.
+5.  **Clock:** Can be set to interrupt the carousel at specific intervals.
+
+-----
+
+## Logging
+
+A log file is created at `PinballX\Plugins\PBXFlexDMDDisplay.txt`. If you encounter issues, please check this file for debug information.
+
+-----
+
+## Credits
+
+A huge thanks to @5cutters , the 'PinballX Plugin Wizard' and 'FlexDMD master'. His work on the statistics plugin and FlexDMD initialization was instrumental in the development of this project.
+
+-----
+
+### Support
+
+If you have questions, feature requests, or need support, please reach out via the [GameEx Forums](https://forums.gameex.com/forums/topic/28447-plugin-flexdmd-real-dmd-video-player-version-13/).
