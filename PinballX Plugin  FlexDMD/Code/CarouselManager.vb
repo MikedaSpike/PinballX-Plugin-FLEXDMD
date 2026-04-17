@@ -78,8 +78,8 @@ Public Class CarouselManager
 
     Private CurrentBadges As List(Of PinemHiManager.BadgeResult)
 
-    Public Sub New(wrapper As FlexDMDEngine)
-        _dmd = wrapper
+    Public Sub New(FlexEngine As FlexDMDEngine)
+        _dmd = FlexEngine
         _stopwatch = Stopwatch.StartNew()
         _timer = New System.Timers.Timer(30)
         _dmd.CalculateClockFont()
