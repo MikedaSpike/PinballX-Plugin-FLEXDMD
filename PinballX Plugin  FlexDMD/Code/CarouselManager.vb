@@ -133,7 +133,11 @@ Public Class CarouselManager
 
     Public Sub UpdateGameInfo(mediaFile As String, HighscoreTexts As List(Of String), badges As List(Of PinemHiManager.BadgeResult), Optional scrollInfo As String = "")
         _pendingMediaFile = mediaFile
-        _pendingHighscoreTexts = HighscoreTexts
+        If HighscoreTexts IsNot Nothing Then
+            _pendingHighscoreTexts = HighscoreTexts.Where(Function(txt) Not String.IsNullOrWhiteSpace(txt)).ToList()
+        Else
+            _pendingHighscoreTexts = New List(Of String)()
+        End If
         _pendingScrollText = scrollInfo
         _pendingBadges = badges
         _hasNewData = True

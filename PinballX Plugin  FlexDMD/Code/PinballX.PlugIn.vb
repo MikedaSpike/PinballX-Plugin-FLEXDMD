@@ -788,13 +788,14 @@ Namespace PinballX
                 Dim highscoreList As New List(Of String)
 
                 If _carousel.ShowPBXHighscores Then
+                    Dim pbxExpectedPath As String = Path.Combine(My.Application.Info.DirectoryPath, "High Scores", strSystemName, strTableName & ".txt")
                     Dim PBXHighscoreText = GetPBXHighscoreText(My.Application.Info.DirectoryPath, strSystemName, strTableName)
                     If Not String.IsNullOrWhiteSpace(PBXHighscoreText) Then
-                        LogDebug($"PBX: Highscore data found. {vbCrLf}{PBXHighscoreText}")
+                        LogDebug($"PBX: Highscore data loaded from: {pbxExpectedPath}")
                         PBXHighscoreText = $"Local table Rankings{vbCrLf}{PBXHighscoreText}"
                         highscoreList.Add(PBXHighscoreText)
                     Else
-                        LogDebug($"PBX: No highscore data found.")
+                        LogDebug($"PBX: No highscore file found, or file is empty at: {pbxExpectedPath}")
                     End If
                 End If
 
@@ -813,21 +814,25 @@ Namespace PinballX
 
                         If _carousel.ShowPinemHiScores Then
                             For Each category In _activeScoreCategories
+                                Dim expectedPinemHiDir As String = Path.Combine(_pinemHiPath, romName)
                                 Dim scoreText As String = phManager.GetLeaderboardData(category, romName)
+                                If Not String.IsNullOrWhiteSpace(scoreText) Then
+                                    LogDebug($"PinemHi: Raw data found for [{category}] (Path context: {expectedPinemHiDir})")
+                                    Dim cleanPinemhitext As String = If(category = "TOP10_Personal_Specials",
+                                                                        ReformatPinemhiSpecial(scoreText, _carousel.UseHd),
+                                                                        ReformatPinemhiScore(scoreText, _carousel.UseHd))
 
-                                If Not String.IsNullOrEmpty(scoreText) Then
-                                    LogDebug($"PinemHi: Highscore data found for [{category}].")
-                                    Dim cleanPinemhitext As String = String.Empty
-                                    If category = "TOP10_Personal_Specials" Then
-                                        cleanPinemhitext = ReformatPinemhiSpecial(scoreText, _carousel.UseHd)
+                                    If Not String.IsNullOrWhiteSpace(cleanPinemhitext) Then
+                                        LogDebug($"Reformated PinemHi: Successfully added [{category}] to sequence.")
+                                        highscoreList.Add(cleanPinemhitext)
                                     Else
-                                        cleanPinemhitext = ReformatPinemhiScore(scoreText, _carousel.UseHd)
+                                        LogDebug($"PinemHi: Data found, but became empty after formatting for [{category}]. Skipping.")
                                     End If
 
                                     LogDebug($"Reformated PinemHi: scored [{vbCrLf}{cleanPinemhitext}].")
                                     highscoreList.Add(cleanPinemhitext)
                                 Else
-                                    LogDebug($"PinemHi: No highscore data for [{category}].")
+                                    LogDebug($"PinemHi: No data returned for [{category}] (ROM: {romName})")
                                 End If
                             Next
                         End If
@@ -839,7 +844,7 @@ Namespace PinballX
                             Dim totalCount As Integer = If(totalbadgesList IsNot Nothing, totalbadgesList.Count, 0)
                             Dim earnedCount As Integer = If(badgesList IsNot Nothing, badgesList.Count, 0)
 
-                            LogDebug($"PinemHi Badges: {earnedCount}/{totalCount} earned for ROM '{romName}'.")
+                            LogDebug($"PinemHi Badges: {earnedCount}/{totalCount} earned for ROM '{romName}' at {_pinemHiPath}.")
 
                             If earnedCount = 0 AndAlso totalCount > 0 Then
                                 _carousel.PinemHighNoBadgestext = $"{_carousel.PinemHighNoBadgesEarned} (0/{totalCount} unlocked)."
