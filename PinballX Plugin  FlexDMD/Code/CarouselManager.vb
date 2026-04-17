@@ -138,6 +138,10 @@ Public Class CarouselManager
         _pendingBadges = badges
         _hasNewData = True
         _state = EngineState.Media
+        If _timer IsNot Nothing AndAlso Not _timer.Enabled Then
+            _timer.Start()
+            LogDebug("Timer awakened by New Game Select.")
+        End If
         LogDebug("New table data received: " & Path.GetFileName(mediaFile))
     End Sub
 
@@ -244,7 +248,8 @@ Public Class CarouselManager
                     End If
 
                 Case EngineState.Idle
-                    If Not String.IsNullOrEmpty(CurrentMediaFile) Then GoToNextState(currentSec)
+                    'If Not String.IsNullOrEmpty(CurrentMediaFile) Then GoToNextState(currentSec)
+                    If Not _hasNewData Then _timer.Stop()
                 Case EngineState.Countdown
                     Dim now As DateTime = DateTime.Now
                     Dim remaining As TimeSpan = _countdownEnd - now
@@ -348,6 +353,7 @@ Public Class CarouselManager
                 Else
                     LogDebug("All carousel actions skipped or empty. Going to Idle.")
                     _state = EngineState.Idle
+                    _timer.Stop()
                 End If
             End If
 
