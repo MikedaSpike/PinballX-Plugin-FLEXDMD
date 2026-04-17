@@ -828,9 +828,6 @@ Namespace PinballX
                                     Else
                                         LogDebug($"PinemHi: Data found, but became empty after formatting for [{category}]. Skipping.")
                                     End If
-
-                                    LogDebug($"Reformated PinemHi: scored [{vbCrLf}{cleanPinemhitext}].")
-                                    highscoreList.Add(cleanPinemhitext)
                                 Else
                                     LogDebug($"PinemHi: No data returned for [{category}] (ROM: {romName})")
                                 End If
