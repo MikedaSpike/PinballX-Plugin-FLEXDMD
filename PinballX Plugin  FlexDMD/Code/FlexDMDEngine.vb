@@ -98,15 +98,31 @@ Public Class FlexDMDEngine
             Dim blnCore As Boolean = Type.GetType("System.Runtime.Loader.AssemblyLoadContext") IsNot Nothing
 
             If blnCore Then
-                If Not String.IsNullOrEmpty(DllPath) AndAlso File.Exists(Path.Combine(DllPath, "FlexDMD.dll")) Then
-                    DllPath = Path.Combine(DllPath, "FlexDMD.dll")
-                    LogDebug($"Trying to use custom FlexDMD DLL from path: {DllPath}")
+                Dim basePath As String
+
+                If Not String.IsNullOrEmpty(DllPath) AndAlso
+                   File.Exists(Path.Combine(DllPath, "FlexDMD.dll")) Then
+
+                    basePath = DllPath
+                    LogDebug($"Trying to use custom FlexDMD DLL from path: {basePath}")
+
                 Else
-                    Dim currentDirectory As String = AppDomain.CurrentDomain.BaseDirectory
-                    DllPath = Path.Combine(currentDirectory, "PLUGINS\FLEXDMD\FlexDMD.dll")
+                    basePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PLUGINS\FLEXDMD")
                 End If
-                Dim strFlexPath As String = If(File.Exists(DllPath), DllPath, SearchRegistry("FlexDMD.dll").ToString())
+
+                Dim dllFile As String = Path.Combine(basePath, "FlexDMD.dll")
+
+                Dim iniFile As String = Path.Combine(basePath, "dmddevice.ini")
+                If File.Exists(iniFile) Then
+                    LogInfo("FlexDMD folder contains dmddevice.ini → removing DMDDEVICE_CONFIG environment variable")
+                    Environment.SetEnvironmentVariable("DMDDEVICE_CONFIG", Nothing, EnvironmentVariableTarget.Process)
+                End If
+                Dim strFlexPath As String = If(File.Exists(dllFile),
+                                               dllFile,
+                                               SearchRegistry("FlexDMD.dll").ToString())
+
                 LogInfo($"Using FlexDMD DLL from {strFlexPath}")
+
                 Dim ass As Reflection.Assembly = Reflection.Assembly.LoadFrom(strFlexPath)
                 Dim ty As Type = ass.GetType("FlexDMD.FlexDMD")
                 flex = Activator.CreateInstance(ty)
