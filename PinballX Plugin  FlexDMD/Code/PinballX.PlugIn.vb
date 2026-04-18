@@ -185,6 +185,9 @@ Namespace PinballX
 
                 _UseHD = ParseBool(_iniFile.GetKeyValue("FlexDMD", "UseHD"), False)
 
+                ' Global Debug
+                GlobalConfig.DebugMode = ParseBool(_iniFile.GetKeyValue("Settings", "Debug"), False)
+
                 _FLEXDMD = New FlexDMDEngine()
                 _FLEXDMD.DllPath = _iniFile.GetKeyValue("FlexDMD", "FlexDMDDllPath")
 
@@ -228,9 +231,6 @@ Namespace PinballX
                 _carousel.ShowClockEverySeconds = ParseInt(_iniFile.GetKeyValue("Clock", "ShowClockEverySeconds"), 60)
                 _carousel.ClockDuration = ParseDouble(_iniFile.GetKeyValue("Clock", "ClockDuration"), 10.0)
                 _carousel.Show24h = ParseBool(_iniFile.GetKeyValue("Clock", "Show24h"), True)
-
-                ' Global Debug
-                GlobalConfig.DebugMode = ParseBool(_iniFile.GetKeyValue("Settings", "Debug"), False)
 
                 ' PINemHi Configuration
                 _pinemHiPath = _iniFile.GetKeyValue("PINemHi", "PinemHiPath")
