@@ -1,6 +1,6 @@
 -----
 
-# FlexDMD V2.0 for PinballX
+# FlexDMD for PinballX
 ![intro-ezgif com-reverse](https://github.com/user-attachments/assets/4744a745-9010-4098-ae17-74de67dfa3ca)
 
 This plugin was created as a high-performance workaround for long-standing issues with the XDMD API in PinballX.
