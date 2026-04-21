@@ -1,6 +1,11 @@
 -----
-
 # FlexDMD for PinballX
+[![Latest Release](https://img.shields.io/github/v/release/MikedaSpike/PinballX-Plugin-FLEXDMD)](https://github.com/MikedaSpike/PinballX-Plugin-FLEXDMD/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/MikedaSpike/PinballX-Plugin-FLEXDMD/total)](https://github.com/MikedaSpike/PinballX-Plugin-FLEXDMD/releases)
+![License](https://img.shields.io/github/license/MikedaSpike/PinballX-Plugin-FLEXDMD)
+![Issues](https://img.shields.io/github/issues/MikedaSpike/PinballX-Plugin-FLEXDMD)
+
+
 ![intro-ezgif com-reverse](https://github.com/user-attachments/assets/4744a745-9010-4098-ae17-74de67dfa3ca)
 
 This plugin was created as a high-performance workaround for long-standing issues with the XDMD API in PinballX.
