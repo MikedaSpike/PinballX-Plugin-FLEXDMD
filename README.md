@@ -2,7 +2,7 @@
 # FlexDMD for PinballX
 [![Latest Release](https://img.shields.io/github/v/release/MikedaSpike/PinballX-Plugin-FLEXDMD)](https://github.com/MikedaSpike/PinballX-Plugin-FLEXDMD/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/MikedaSpike/PinballX-Plugin-FLEXDMD/total)](https://github.com/MikedaSpike/PinballX-Plugin-FLEXDMD/releases)
-![License](https://img.shields.io/github/license/MikedaSpike/PinballX-Plugin-FLEXDMD)
+![License](https://img.shields.io/github/license/MikedaSpike/PinballX-Plugin-FLEXDMD?label=license)
 ![Issues](https://img.shields.io/github/issues/MikedaSpike/PinballX-Plugin-FLEXDMD)
 
 
