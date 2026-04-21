@@ -13,10 +13,10 @@ Imports System.Xml
 Namespace PinballX
     Public Structure PluginInfo
         Public Const Name As String = "FLEXDMD Plugin"
-        Public Const Version As String = "2.0"
+        Public Const Version As String = "2.1"
         Public Const Author As String = "Mike DA Spike"
         Public Const Description As String = "An advanced FlexDMD-based replacement for the standard PinballX XDMD." & vbCrLf & "Perfectly optimised for Real and Virtual DMD setups, supporting both 128x32 and 256x64 (HD) resolutions."
-        Public Const PluginVersion As String = "2.0"
+        Public Const PluginVersion As String = "2.1"
         Dim Dummy As String
     End Structure
 
