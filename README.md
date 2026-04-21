@@ -80,7 +80,7 @@ A log file is created at `PinballX\Plugins\PBXFlexDMDDisplay.txt`. If you encoun
 
 ## Credits
 
-A huge thanks to @5cutters , the 'PinballX Plugin Wizard' and 'FlexDMD master'. His work on the statistics plugin and FlexDMD initialization was instrumental in the development of this project.
+A huge thanks to [5cutters](https://github.com/5cutters) , the 'PinballX Plugin Wizard' and 'FlexDMD master'. His work on the statistics plugin and FlexDMD initialization was instrumental in the development of this project.
 
 -----
 
